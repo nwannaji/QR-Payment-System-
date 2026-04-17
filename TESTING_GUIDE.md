@@ -318,11 +318,29 @@ If accessible:
 3. Attempt a payment
 4. ✅ **Expected**: Optimistic payment still shows success locally
 5. When payment API call fails:
-   - For top-ups: Should be queued in `OfflineQueueService`
-   - For payments: Should show error and NOT auto-retry (to prevent duplicates)
+   - ✅ **For top-ups**: Should be queued in `OfflineQueueService` and auto-retried when connectivity returns (max 3 attempts)
+   - ✅ **For payments**: Local deduction is reversed, error shown, and the payment is enqueued with its idempotency key for safe manual retry
 6. **Turn Wi-Fi back on**
-7. ✅ **Expected**: Queued top-ups should auto-retry (max 3 attempts)
-8. ✅ **Failed payment**: Should show "Retry" button for manual confirmation
+7. ✅ **Expected**: Queued top-ups should auto-retry within seconds (triggered by `connectivity_plus` listener)
+8. ✅ **Failed payment**: Should show "Retry" button for manual confirmation — NOT auto-retried to avoid confusing UX where a reversed balance suddenly drops again
+
+### Test 5.5a — Idempotency Keys (End-to-End)
+This test verifies that idempotency keys prevent double-charges on payment retries.
+
+1. Login as buyer with sufficient wallet balance
+2. Start a payment to a merchant
+3. ✅ **Check network request**: The POST body should include an `idempotency_key` field (UUID v4 format)
+4. ✅ **Check offline queue**: If the payment fails due to network error, the queued operation should have the same `idempotency_key` as the original request
+5. **Simulate timeout scenario**:
+   - Use a proxy tool (e.g., Charles Proxy, mitmproxy) to delay the server response
+   - Or: Complete the payment successfully on the server side, then trigger a retry from the offline queue
+   - ✅ **Expected**: The server should return `{ success: true, duplicate: true }` with the original transaction — no second charge is created
+6. **Verify no duplicate charge**:
+   - Check buyer wallet balance after retry — it should reflect only ONE deduction
+   - Check merchant transaction list — there should be only ONE transaction for this payment
+7. **Manual retry from offline queue**:
+   - When retrying a queued payment, ✅ the `idempotency_key` from the queued operation is sent to the backend
+   - ✅ If the original payment was already processed, the server returns the existing transaction instead of creating a duplicate
 
 ### Test 5.6 — Banks List Caching (P2-3)
 1. As buyer, scan a merchant QR code → reach Payment Confirmation screen
@@ -359,6 +377,7 @@ If accessible:
    - Top up → ✅ Queued offline if enabled
 3. Turn connectivity back on
 4. ✅ **Expected**: App recovers gracefully, cached data still visible
+5. ✅ **Connectivity auto-retry**: Queued top-ups/funds should automatically process when connectivity is restored (via `connectivity_plus` listener in `OfflineQueueService`)
 
 ### Test 6.2 — Token Expiry
 1. Login successfully
@@ -438,7 +457,8 @@ For rapid regression testing, run through this list after any change:
 - [ ] Pull-to-refresh on any screen → Data refreshes
 - [ ] Kill and reopen app → Cached data appears instantly
 - [ ] Turn off network → Cached data still shows, errors handled gracefully
-- [ ] Turn network back on → App recovers, background sync refreshes data
+- [ ] Turn network back on → App recovers, queued top-ups auto-retry, background sync refreshes data
+- [ ] Payment retry with idempotency → No duplicate charge, server returns original transaction
 - [ ] Profile edit → Changes save successfully
 - [ ] PIN change → Success
 - [ ] Logout → Clears session, redirects to login

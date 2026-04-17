@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../api/backend_api.dart';
 import '../models/transaction.dart';
 import '../providers/wallet_provider.dart';
+import '../services/offline_queue_service.dart';
 
 /// Result of an optimistic payment attempt.
 enum OptimisticPaymentStatus {
@@ -31,12 +33,14 @@ class OptimisticPaymentResult {
 /// Service that implements optimistic payment with local reconciliation.
 ///
 /// When a user confirms a payment:
-/// 1. Deducts the amount from the local wallet immediately
-/// 2. Creates a pending local transaction
+/// 1. Generates an idempotency key for the payment
+/// 2. Deducts the amount from the local wallet immediately
 /// 3. Shows the success dialog instantly
 /// 4. Sends the payment request to the server in the background
 /// 5. On server success: updates the pending transaction to completed
-/// 6. On server failure: reverses the local deduction and shows an error
+/// 6. On server rejection: reverses the local deduction and shows an error
+/// 7. On network error: reverses the local deduction, enqueues for manual
+///    retry with the same idempotency key to prevent double charges
 ///
 /// This reduces perceived payment latency from 2-5 seconds to <100ms.
 class OptimisticPaymentService {
@@ -45,6 +49,7 @@ class OptimisticPaymentService {
   factory OptimisticPaymentService() => _instance;
 
   final BackendApi _api = BackendApi();
+  final Uuid _uuid = const Uuid();
 
   /// Initiate an optimistic payment.
   ///
@@ -62,6 +67,12 @@ class OptimisticPaymentService {
     required Function(Transaction transaction) onConfirmed,
     required Function(String errorMessage) onFailed,
   }) async {
+    // Generate an idempotency key before attempting the payment.
+    // This key survives across retries — if the server already processed
+    // this payment (e.g. timeout after server-side commit), the retry
+    // will get the original transaction back instead of a duplicate charge.
+    final idempotencyKey = _uuid.v4();
+
     // Step 1: Lock SWR refreshes and deduct locally
     walletProvider.lockOptimisticRefresh();
     walletProvider.deductLocally(amount);
@@ -74,6 +85,7 @@ class OptimisticPaymentService {
         amount: amount,
         pin: pin,
         description: description,
+        idempotencyKey: idempotencyKey,
       );
 
       if (response.success && response.data != null) {
@@ -87,9 +99,27 @@ class OptimisticPaymentService {
         onFailed(response.message ?? 'Payment failed');
       }
     } catch (e) {
-      // Step 3c: Network error — reverse the local deduction, then unlock and refresh
+      // Step 3c: Network error — reverse the local deduction, then unlock and refresh.
+      // Enqueue the operation with the same idempotency key so that a manual
+      // retry won't double-charge if the server actually committed the first attempt.
       walletProvider.reverseLocalDeduction(amount);
       await walletProvider.unlockOptimisticRefresh();
+
+      try {
+        await OfflineQueueService().enqueue(
+          type: 'payment',
+          payload: {
+            'merchant_id': merchantId,
+            'amount': amount,
+            'pin': pin,
+            if (description != null) 'description': description,
+          },
+          idempotencyKey: idempotencyKey,
+        );
+      } catch (_) {
+        // Offline queue init failure shouldn't block the error callback
+      }
+
       onFailed('Network error. Please try again.');
     }
   }

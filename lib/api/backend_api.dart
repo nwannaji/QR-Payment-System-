@@ -812,11 +812,16 @@ class BackendApi {
   /// PIN is hashed with the user ID as salt before transmission (P2-1).
   /// The backend must accept `pin_hash` as an alternative to `pin`.
   /// If the backend doesn't support `pin_hash`, it falls back to `pin`.
+  ///
+  /// [idempotencyKey] prevents duplicate charges on retry — if the server
+  /// already processed a payment with this key, it returns the original
+  /// transaction instead of creating a new one.
   Future<ApiResponse<Transaction>> initiatePayment({
     required String merchantId,
     required double amount,
     required String pin,
     String? description,
+    String? idempotencyKey,
   }) async {
     // Hash PIN with user ID as salt for secure transmission
     final userId = await getUserId();
@@ -830,9 +835,12 @@ class BackendApi {
           'amount': amount,
           if (pinHash != null) 'pin_hash': pinHash,
           if (description != null) 'description': description,
+          if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
         },
       );
 
+      // If the server indicates this was a duplicate (idempotency hit),
+      // the transaction data is still valid — treat it as success.
       return ApiResponse.success(
         data: Transaction.fromJson(response.data['transaction']),
       );

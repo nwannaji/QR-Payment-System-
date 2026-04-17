@@ -26,7 +26,7 @@ class PaymentConfirmationScreen extends StatefulWidget {
   State<PaymentConfirmationScreen> createState() => _PaymentConfirmationScreenState();
 }
 
-class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
+class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> with WidgetsBindingObserver {
   final _amountController = TextEditingController();
   final _api = BackendApi();
   final _cache = CacheService();
@@ -36,6 +36,7 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   String? _lastPaymentReference;
   String? _lastPaymentUrl;
   double? _lastPaymentAmount;
+  bool _isVerifying = false;
 
   List<PaystackBank> _banks = [];
   PaystackBank? _selectedBank;
@@ -43,7 +44,23 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadBanks();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Auto-verify payment when user returns from the Paystack browser
+    if (state == AppLifecycleState.resumed && _lastPaymentReference != null && !_isVerifying && !_isLoading) {
+      _verifyPayment();
+    }
   }
 
   Future<void> _loadBanks() async {
@@ -83,12 +100,6 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
         });
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
   }
 
   Future<bool> _openPaystackCheckout(String url) async {
@@ -291,6 +302,9 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
       return;
     }
 
+    if (_isVerifying) return;
+    _isVerifying = true;
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -333,6 +347,8 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
         setState(() => _isLoading = false);
         _showRetryDialog('Could not verify payment. Please try again.', 'error');
       }
+    } finally {
+      _isVerifying = false;
     }
   }
 

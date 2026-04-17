@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -8,11 +10,12 @@ import '../models/queued_operation.dart';
 /// Service for queuing operations when the network is unavailable
 /// and retrying them when connectivity is restored.
 ///
-/// Design decision: Idempotency keys are included in queued operations,
-/// but payment retries require backend support for X-Idempotency-Key.
-/// If the backend doesn't support idempotency keys, payments are NOT
-/// auto-retried — instead, the user must manually retry to avoid
-/// duplicate charges. Read operations (top-ups, etc.) are auto-retried.
+/// Design decision: Idempotency keys are included in queued operations
+/// and sent to the backend on retry. This allows safe manual retry of
+/// payments — if the server already processed the original request, it
+/// returns the existing transaction instead of double-charging.
+/// Payments are still NOT auto-retried to avoid confusing UX where a
+/// reversed balance suddenly drops again on confirmation.
 class OfflineQueueService {
   OfflineQueueService._();
   static final OfflineQueueService _instance = OfflineQueueService._();
@@ -22,6 +25,8 @@ class OfflineQueueService {
   Box<String>? _box;
   final Uuid _uuid = const Uuid();
 
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
   /// Operations that are safe to auto-retry (no risk of duplication).
   static const _autoRetryableTypes = {'topup', 'manual_fund'};
 
@@ -29,8 +34,46 @@ class OfflineQueueService {
   static const int maxRetries = 3;
 
   /// Initialize the offline queue. Call once at app startup.
+  ///
+  /// Automatically starts listening for connectivity changes and
+  /// processes pending auto-retryable operations when online.
   Future<void> init() async {
     _box = await Hive.openBox<String>(_boxName);
+    _startConnectivityListener();
+  }
+
+  /// Listen for connectivity restoration and auto-retry safe operations.
+  void _startConnectivityListener() {
+    _connectivitySub = Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      final isOnline = results.any((r) => r != ConnectivityResult.none);
+      if (isOnline) {
+        _onConnectivityRestored();
+      }
+    });
+  }
+
+  /// Called when connectivity is restored.
+  ///
+  /// Processes all auto-retryable operations (topups, manual funds).
+  /// Payments are excluded — they require manual user confirmation
+  /// because the UX implications of auto-retrying a payment (reversing
+  /// a balance deduction and then re-deducting) would be confusing.
+  Future<void> _onConnectivityRestored() async {
+    final pending = getPendingOperations();
+    if (pending.isEmpty) return;
+
+    debugPrint('[OfflineQueue] Connectivity restored — processing ${pending.length} pending operations');
+    await processPendingOperations();
+  }
+
+  /// Stop listening for connectivity changes.
+  ///
+  /// Call this when the app is being disposed (e.g. in widget dispose).
+  void dispose() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
   }
 
   Box<String> get _queueBox {
@@ -173,6 +216,7 @@ class OfflineQueueService {
             amount: (operation.payload['amount'] as num).toDouble(),
             pin: operation.payload['pin'] as String,
             description: operation.payload['description'] as String?,
+            idempotencyKey: operation.idempotencyKey,
           );
           success = response.success;
           break;

@@ -167,45 +167,45 @@ class _DashboardContent extends StatelessWidget {
             children: [
             // Header
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: AppTheme.primaryColor,
-                      backgroundImage: user?.avatarUrl != null
-                          ? NetworkImage(BackendApi().getAvatarUrl(user!.avatarUrl))
-                          : null,
-                      child: user?.avatarUrl == null
-                          ? Text(
-                              (user?.businessName ?? user?.name ?? 'M')
-                                  .substring(0, 1)
-                                  .toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Welcome back,',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Text(
-                          user?.businessName ?? user?.name ?? 'Merchant',
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                      ],
-                    ),
-                  ],
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppTheme.primaryColor,
+                  backgroundImage: user?.avatarUrl != null
+                      ? NetworkImage(BackendApi().getAvatarUrl(user!.avatarUrl))
+                      : null,
+                  child: user?.avatarUrl == null
+                      ? Text(
+                          (user?.businessName ?? user?.name ?? 'M')
+                              .substring(0, 1)
+                              .toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        )
+                      : null,
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Welcome back,',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      Text(
+                        user?.businessName ?? user?.name ?? 'Merchant',
+                        style: Theme.of(context).textTheme.headlineMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
                 CircleAvatar(
                   radius: 24,
                   backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),

@@ -52,7 +52,7 @@ Merchant generates QR Code  →  Buyer scans with phone  →  Enters amount + PI
 | Optimization | What It Does | Impact |
 |---|---|---|
 | **Stale-While-Revalidate Cache** | Hive-backed cache shows data instantly, refreshes in background | Screen loads <50ms vs 1-3s |
-| **Optimistic Payments** | Deduct locally first, confirm with server in background, reverse on failure | Payment confirmation <100ms vs 2-5s |
+| **Optimistic Payments** | Deduct locally first, confirm with server in background, reverse on failure; idempotency key prevents double-charges on retry | Payment confirmation <100ms vs 2-5s |
 | **Local QR Parsing** | Parse QR code client-side, navigate to payment screen before server verifies | Payment screen in <50ms vs 200-800ms |
 | **Token Refresh Interceptor** | Auto-refreshes expired tokens with request queuing | Eliminates 5-10s re-login penalty |
 | **Request Deduplication** | In-flight request map prevents duplicate API calls | Saves 1-3s per duplicate request |
@@ -63,8 +63,9 @@ Merchant generates QR Code  →  Buyer scans with phone  →  Enters amount + PI
 | Feature | What It Does |
 |---|---|
 | **Offline Payment Queue** | Failed top-ups and fund operations queued in Hive, auto-retried on reconnect (max 3 retries) |
-| **Idempotency Keys** | UUID-based keys on every queued operation prevent duplicate processing |
-| **Connectivity Awareness** | `connectivity_plus` detects network changes for queue processing |
+| **End-to-End Idempotency Keys** | UUID v4 keys generated per payment and sent to the backend — if a retry hits a server that already committed the transaction, the original result is returned instead of creating a duplicate charge |
+| **Connectivity Auto-Retry** | `connectivity_plus` listener detects network restoration and automatically processes queued top-ups and fund operations; payments require manual retry to avoid confusing UX |
+| **Optimistic Rollback + Enqueue** | On network failure, the local deduction is reversed and the payment is enqueued with its idempotency key for safe manual retry |
 
 ### Security
 
@@ -126,8 +127,8 @@ lib/
 │   ├── cache_service.dart            # Generic Hive-backed TTL cache (SWR)
 │   ├── cache_keys.dart               # Cache key constants with TTL durations
 │   ├── deduplication_service.dart     # In-flight request deduplication
-│   ├── offline_queue_service.dart    # Hive queue for failed operations
-│   ├── optimistic_payment_service.dart # Local deduction + background API + rollback
+│   ├── offline_queue_service.dart    # Hive queue for failed operations + connectivity auto-retry
+│   ├── optimistic_payment_service.dart # Local deduction + idempotency key + background API + rollback
 │   ├── prefetch_service.dart         # Parallel data fetch on login
 │   ├── qr_parser.dart                # Client-side QR validation
 │   └── qr_share_service.dart        # Capture QR widget as PNG, share via system sheet

@@ -44,12 +44,20 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Built APK
+*.apk
+
 # Local configuration
 local.properties
 
 # Environment files
 .env
 .env.*
+
+# Backend
+backend/qr_payment/node_modules/
+backend/qr_payment/.secrets.json
+backend/qr_payment/uploads/
 
 # Claude Code
 .claude/

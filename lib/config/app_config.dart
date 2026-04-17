@@ -18,8 +18,8 @@ class AppConfig {
 
   /// Development configuration (use 10.0.2.2 for Android emulator to access host localhost)
   static const development = AppConfig(
-    baseUrl: 'http://172.16.2.90:3000/api/v1',
-    // baseUrl: 'http://192.168.115.53:3000/api/v1',
+    //baseUrl: 'http://172.16.2.90:3000/api/v1',
+    baseUrl: 'http://160.226.0.67:3001/api/v1',
     environment: 'development',
     enableDebugLogging: true,
     allowCleartext: true,
